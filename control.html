@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backend routing · Pond Planning</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #243642;
+    --muted: #5e6e76;
+    --rule: #d6dedc;
+    --paper: #f7f9f8;
+    --water: #1b5e9e;
+    --water-tint: #e4eef7;
+    --serving: #3f7a2e;
+    --down: #a33a2b;
+    --off: #7a6a52;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.5 "Mukta", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  h1 { font-size: 1.75rem; line-height: 1.2; margin: 0 0 0.25rem; font-weight: 700; }
+  h2 { font-size: 1.15rem; margin: 2.25rem 0 0.75rem; font-weight: 700; }
+  p { margin: 0; }
+  .lead { color: var(--muted); }
+
+  #message { min-height: 1.5rem; margin-top: 0.75rem; color: var(--muted); }
+  #modes-heading { margin-top: 1rem; }
+  #message.error { color: var(--down); }
+
+  fieldset { border: 0; margin: 0; padding: 0; }
+  legend { padding: 0; }
+  .mode {
+    display: grid;
+    grid-template-columns: 1.25rem 1fr;
+    gap: 0 0.75rem;
+    padding: 0.7rem 0.25rem;
+    border-top: 1px solid var(--rule);
+    cursor: pointer;
+  }
+  .mode:last-child { border-bottom: 1px solid var(--rule); }
+  .mode input { margin: 0.35rem 0 0; accent-color: var(--water); width: 1.05rem; height: 1.05rem; }
+  .mode strong { font-weight: 600; }
+  .mode span { display: block; grid-column: 2; color: var(--muted); font-size: 0.94rem; }
+  .mode:has(input:checked) { background: var(--water-tint); }
+  .mode:has(input:focus-visible) { outline: 2px solid var(--water); outline-offset: -2px; }
+
+  /* The traffic split: the one bold element on the page. */
+  .split { display: flex; height: 3rem; border-radius: 3px; overflow: hidden; background: var(--rule); }
+  .split div {
+    display: flex; align-items: center; padding: 0 0.75rem;
+    color: #fff; font-weight: 700; font-size: 1.1rem; white-space: nowrap; min-width: 0; overflow: hidden;
+    transition: flex-basis 0.4s ease;
+  }
+  .split div:nth-child(odd) { background: var(--water); }
+  .split div:nth-child(even) { background: #4f88bd; }
+  .split-note { color: var(--muted); font-size: 0.94rem; margin-top: 0.4rem; }
+
+  .backend { border-top: 1px solid var(--rule); padding: 1rem 0.25rem; }
+  .backend:last-child { border-bottom: 1px solid var(--rule); }
+  .backend-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
+  .backend-name { font-size: 1.25rem; font-weight: 700; }
+  .backend-url { color: var(--muted); overflow-wrap: anywhere; }
+  .state { font-weight: 600; margin-left: auto; }
+  .state.serving { color: var(--serving); }
+  .state.down { color: var(--down); }
+  .state.off { color: var(--off); }
+  .stats { display: flex; flex-wrap: wrap; gap: 0.25rem 1.75rem; margin: 0.5rem 0 0.75rem; color: var(--muted); font-size: 0.94rem; }
+  .stats b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  button {
+    font: inherit; font-weight: 600; font-size: 0.94rem;
+    padding: 0.35rem 0.9rem; border-radius: 3px; cursor: pointer;
+    border: 1px solid var(--ink); background: #fff; color: var(--ink);
+  }
+  button:hover { background: var(--water-tint); }
+  button:focus-visible, input[type="password"]:focus-visible { outline: 2px solid var(--water); outline-offset: 2px; }
+  button:disabled { opacity: 0.5; cursor: progress; }
+
+  #token-form { display: none; margin-top: 1.25rem; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+  #token-form.shown { display: flex; }
+  #token-form input { font: inherit; padding: 0.3rem 0.6rem; border: 1px solid var(--muted); border-radius: 3px; min-width: 14rem; }
+
+  @media (prefers-reduced-motion: reduce) { .split div { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Backend routing</h1>
+  <p class="lead">Choose which Pond Planning backend serves your users. Changes apply to new requests at once.</p>
+
+  <form id="token-form">
+    <label for="token">Admin token</label>
+    <input id="token" type="password" autocomplete="current-password">
+    <button type="submit">Save token</button>
+  </form>
+  <p id="message" role="status" aria-live="polite"></p>
+
+  <section aria-labelledby="modes-heading">
+    <fieldset id="modes">
+      <legend><h2 id="modes-heading">Send users to</h2></legend>
+    </fieldset>
+  </section>
+
+  <section aria-labelledby="split-heading">
+    <h2 id="split-heading">Requests served so far</h2>
+    <div class="split" id="split" aria-hidden="true"></div>
+    <p class="split-note" id="split-note"></p>
+  </section>
+
+  <section aria-labelledby="backends-heading">
+    <h2 id="backends-heading">Backends</h2>
+    <div id="backends"></div>
+  </section>
+</main>
+
+<script>
+  const MODE_TEXT = {
+    sticky: ["Keep each user on one backend",
+             "New users go to the less busy backend. A user's catchment lookup then reuses the analysis already on their backend."],
+    round_robin: ["Alternate between backends", "Each request goes to the next backend in turn."],
+    least_connections: ["Send each request to the least busy backend", "Spreads long analyses evenly when many people use the app at once."],
+  };
+  const label = (name) => name.toUpperCase();
+  const modeText = (mode) => MODE_TEXT[mode] ||
+    [`Only backend ${label(mode)}`, `Everyone uses ${label(mode)}. The others take over only while it is down.`];
+
+  let token = sessionStorage.getItem("lbToken") || "";
+  let busy = false;
+  const message = document.getElementById("message");
+  const say = (text, isError = false) => { message.textContent = text; message.className = isError ? "error" : ""; };
+
+  async function api(path, body) {
+    const headers = {};
+    if (token) headers["X-Admin-Token"] = token;
+    if (body) headers["Content-Type"] = "application/json";
+    const response = await fetch(path, { method: body ? "POST" : "GET", headers, body: body && JSON.stringify(body) });
+    let data = null;
+    try { data = await response.json(); } catch { /* not JSON */ }
+    if (!response.ok) {
+      const error = new Error((data && data.detail) || `The load balancer answered HTTP ${response.status}.`);
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  }
+
+  // The page is built once and then updated in place, so refreshing every
+  // two seconds never moves keyboard focus or swaps a button mid-click.
+  let built = "";
+  const rows = {};
+  let enabledNow = {};
+
+  function build(status) {
+    const box = document.getElementById("modes");
+    box.replaceChildren(box.querySelector("legend"));
+    for (const mode of status.modes) {
+      const [title, help] = modeText(mode);
+      const row = document.createElement("label");
+      row.className = "mode";
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "mode";
+      input.value = mode;
+      input.addEventListener("change", () => changeMode(mode));
+      const text = document.createElement("div");
+      text.innerHTML = `<strong></strong><span></span>`;
+      text.querySelector("strong").textContent = title;
+      text.querySelector("span").textContent = help;
+      row.append(input, text);
+      box.append(row);
+    }
+
+    const split = document.getElementById("split");
+    const list = document.getElementById("backends");
+    split.replaceChildren();
+    list.replaceChildren();
+    for (const b of status.backends) {
+      const bar = document.createElement("div");
+      split.append(bar);
+      const row = document.createElement("div");
+      row.className = "backend";
+      row.innerHTML = `
+        <div class="backend-head">
+          <span class="backend-name"></span><span class="backend-url"></span><span class="state"></span>
+        </div>
+        <div class="stats">
+          <span>In progress <b data-k="in_progress"></b></span>
+          <span>Served <b data-k="served"></b></span>
+          <span>Failed <b data-k="failed"></b></span>
+          <span>Average response <b data-k="avg"></b></span>
+        </div>
+        <button type="button"></button>`;
+      row.querySelector(".backend-name").textContent = `Backend ${label(b.name)}`;
+      row.querySelector(".backend-url").textContent = b.url;
+      const button = row.querySelector("button");
+      button.addEventListener("click", () => setEnabled(b.name, !enabledNow[b.name], button));
+      list.append(row);
+      rows[b.name] = { row, bar, button };
+    }
+    built = status.modes.join(",");
+  }
+
+  // Use the first label that fits inside the bar's padding at its final
+  // width (the bar may still be animating), or none.
+  function fitLabel(bar, width, labels) {
+    const style = getComputedStyle(bar);
+    const room = width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const span = document.createElement("span");
+    bar.replaceChildren(span);
+    for (const text of labels) {
+      span.textContent = text;
+      if (span.offsetWidth <= room) return;
+    }
+    span.textContent = "";
+  }
+
+  // Whole percentages that add up to exactly 100 (largest remainder first).
+  function wholePercents(counts, total) {
+    if (!total) return counts.map(() => 0);
+    const exact = counts.map((c) => (c / total) * 100);
+    const result = exact.map(Math.floor);
+    let left = 100 - result.reduce((a, b) => a + b, 0);
+    const order = exact.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0]);
+    for (const [, i] of order) { if (left-- <= 0) break; result[i] += 1; }
+    return result;
+  }
+
+  let lastStatus = null;
+  window.addEventListener("resize", () => { if (lastStatus) render(lastStatus); });
+
+  function render(status) {
+    lastStatus = status;
+    if (built !== status.modes.join(",")) build(status);
+
+    for (const input of document.querySelectorAll("input[name=mode]")) {
+      input.checked = input.value === status.mode;
+    }
+
+    const total = status.backends.reduce((sum, b) => sum + b.served, 0);
+    const percent = wholePercents(status.backends.map((b) => b.served), total);
+    const parts = [];
+    status.backends.forEach((b, i) => {
+      const { row, bar, button } = rows[b.name];
+      enabledNow[b.name] = b.enabled;
+
+      parts.push(`${label(b.name)} ${percent[i]}%`);
+      bar.style.display = b.served ? "" : "none";
+      bar.style.flex = `0 0 ${total ? (b.served / total) * 100 : 0}%`;
+      // Full label if it fits, else just the letter, else nothing; the line
+      // below the bar always gives the exact figures.
+      const width = total ? (b.served / total) * document.getElementById("split").clientWidth : 0;
+      fitLabel(bar, width, [`${label(b.name)} ${percent[i]}%`, label(b.name)]);
+
+      let state = "Serving", cls = "serving";
+      if (!b.enabled) { state = "Out of service"; cls = "off"; }
+      else if (!b.healthy) { state = `Down: ${b.last_error || "not answering"}`; cls = "down"; }
+      const stateEl = row.querySelector(".state");
+      stateEl.textContent = state;
+      stateEl.className = `state ${cls}`;
+      row.querySelector('[data-k="in_progress"]').textContent = b.in_progress;
+      row.querySelector('[data-k="served"]').textContent = b.served;
+      row.querySelector('[data-k="failed"]').textContent = b.failed;
+      row.querySelector('[data-k="avg"]').textContent = b.avg_response_ms == null ? "none yet" : `${b.avg_response_ms} ms`;
+
+      button.textContent = b.enabled ? "Take out of service" : "Put back in service";
+      button.setAttribute("aria-label", `${button.textContent}: backend ${label(b.name)}`);
+    });
+    document.getElementById("split-note").textContent = total
+      ? `${parts.join(", ")} of ${total} request${total === 1 ? "" : "s"} since the load balancer started.`
+      : "No requests yet. The split appears once users run an analysis.";
+  }
+
+  function handle(error) {
+    if (error.status === 401) {
+      document.getElementById("token-form").classList.add("shown");
+      say(error.message, true);
+    } else if (error.status) {
+      say(error.message, true);
+    } else {
+      say("Can't reach the load balancer. Check that it is running.", true);
+    }
+  }
+
+  async function refresh() {
+    if (busy) return;
+    try {
+      const status = await api("status");
+      document.getElementById("token-form").classList.toggle("shown", status.admin_token_required && !token);
+      render(status);
+      if (message.className === "error") say("");
+    } catch (error) {
+      handle(error);
+    }
+  }
+
+  async function changeMode(mode) {
+    busy = true;
+    try {
+      render(await api("mode", { mode }));
+      say(`Now: ${modeText(mode)[0].toLowerCase()}.`);
+    } catch (error) {
+      handle(error);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function setEnabled(name, enabled, button) {
+    busy = true;
+    button.disabled = true;
+    try {
+      render(await api(`backends/${encodeURIComponent(name)}`, { enabled }));
+      say(`Backend ${label(name)} ${enabled ? "is back in service" : "is out of service; its users move to the other backend"}.`);
+    } catch (error) {
+      handle(error);
+    } finally {
+      button.disabled = false;
+      busy = false;
+    }
+  }
+
+  document.getElementById("token-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    token = document.getElementById("token").value.trim();
+    sessionStorage.setItem("lbToken", token);
+    say("Token saved for this browser tab.");
+    refresh();
+  });
+
+  refresh();
+  setInterval(refresh, 2000);
+</script>
+</body>
+</html>

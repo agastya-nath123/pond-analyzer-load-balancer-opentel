@@ -1,0 +1,11 @@
+# Tested together with Python 3.12.3
+starlette==1.7.0
+httpx==0.28.1
+uvicorn==0.54.0
+
+# Telemetry (traces and metrics); off unless configured, see README
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-http==1.45.1
+opentelemetry-instrumentation-asgi==0.66b1
+opentelemetry-instrumentation-httpx==0.66b1
