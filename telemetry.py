@@ -8,9 +8,9 @@ before when no collector is running:
     OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
         send traces and metrics to an OTLP collector (OTLP over HTTP), such
         as Jaeger, Grafana's otel-lgtm image or the OpenTelemetry Collector
-    OTEL_TRACES_EXPORTER=console / OTEL_METRICS_EXPORTER=console
-        print them in this terminal instead (values: otlp, console, none;
-        several can be combined, e.g. "otlp,console")
+    OTEL_TRACES_EXPORTER / OTEL_METRICS_EXPORTER / OTEL_LOGS_EXPORTER=console
+        print that signal in this terminal instead (values: otlp, console,
+        none; several can be combined, e.g. "otlp,console")
     OTEL_SERVICE_NAME           override the service name
     OTEL_METRIC_EXPORT_INTERVAL milliseconds between metric exports (10000 here)
     OTEL_SDK_DISABLED=true      turn telemetry off even if the above are set
@@ -24,6 +24,7 @@ package: without setup() its tracers and meters do nothing.
 
 from __future__ import annotations
 
+import logging
 import os
 import socket
 
@@ -31,7 +32,7 @@ ENABLED = False
 
 
 def _exporters(kind: str) -> set[str]:
-    """Exporters requested for 'TRACES' or 'METRICS'."""
+    """Exporters requested for 'TRACES', 'METRICS' or 'LOGS'."""
     value = os.environ.get(f"OTEL_{kind}_EXPORTER")
     if value is None:
         endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or os.environ.get(f"OTEL_EXPORTER_OTLP_{kind}_ENDPOINT")
@@ -51,7 +52,8 @@ def setup(service_name: str, service_version: str) -> bool:
     if os.environ.get("OTEL_SDK_DISABLED", "").strip().lower() == "true":
         return False
     trace_exporters, metric_exporters = _exporters("TRACES"), _exporters("METRICS")
-    if not trace_exporters and not metric_exporters:
+    log_exporters = _exporters("LOGS")
+    if not (trace_exporters or metric_exporters or log_exporters):
         return False
 
     from opentelemetry import metrics, trace
@@ -95,6 +97,31 @@ def setup(service_name: str, service_version: str) -> bool:
                 exporter = ConsoleMetricExporter()
             readers.append(PeriodicExportingMetricReader(exporter, export_interval_millis=interval))
         metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=readers))
+
+    if log_exporters:
+        from opentelemetry._logs import set_logger_provider
+        from opentelemetry.instrumentation.logging.handler import LoggingHandler
+        from opentelemetry.sdk._logs import LoggerProvider
+        from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, ConsoleLogExporter
+
+        log_provider = LoggerProvider(resource=resource)
+        for name in sorted(log_exporters):
+            if name == "otlp":
+                from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+                exporter = OTLPLogExporter()
+            else:
+                exporter = ConsoleLogExporter()
+            log_provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
+        set_logger_provider(log_provider)
+
+        # Records from Python's logging module become OpenTelemetry log
+        # records. Each carries the trace and span ID of the request that
+        # wrote it, so a log line leads straight to its trace.
+        handler = LoggingHandler(level=logging.INFO, logger_provider=log_provider)
+        # Leave out the exporters' own messages, which could feed back on
+        # themselves when the collector is unreachable.
+        handler.addFilter(lambda record: not record.name.startswith(("opentelemetry", "urllib3", "requests")))
+        logging.getLogger().addHandler(handler)
 
     ENABLED = True
     return True

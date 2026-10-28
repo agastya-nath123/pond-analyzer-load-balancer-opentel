@@ -234,9 +234,11 @@ client: httpx.AsyncClient | None = None
 # ---------------------------------------------------------------------------
 
 _meter = metrics.get_meter("pond.load_balancer", VERSION)
+# Bucket boundaries in seconds; the SDK's defaults are meant for milliseconds.
 _backend_duration = _meter.create_histogram(
     "lb.backend.request.duration", unit="s",
-    description="Time a backend took to answer a forwarded request, by backend and status code")
+    description="Time a backend took to answer a forwarded request, by backend and status code",
+    explicit_bucket_boundaries_advisory=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 180])
 _failovers = _meter.create_counter(
     "lb.failovers", unit="{request}",
     description="Requests resent to another backend because this one could not be reached")
@@ -394,6 +396,8 @@ async def proxy(request: Request) -> Response:
         span.add_event("lb.backend_failed", {"lb.backend": backend.name, "error.type": reason})
         if attempt < len(candidates):
             _failovers.add(1, {"lb.backend": backend.name})
+            log.warning("%s %s: backend %s failed (%s); retrying on backend %s",
+                        request.method, request.url.path, backend.name, reason, candidates[attempt].name)
 
     for attempt, backend in enumerate(candidates, start=1):
         backend.active += 1
